@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>АКОД: Тишина за периметром</title>
+<title>АКОД: Тишина за периметром — v8.0 DIRECT</title>
 <style>
 * {
   margin: 0;
@@ -22,6 +22,7 @@ html, body {
   background: #0a0a0a;
   color: #e0e0e0;
   touch-action: none;
+  -webkit-touch-callout: none;
 }
 
 #versionBadge {
@@ -30,15 +31,16 @@ html, body {
   right: 8px;
   z-index: 9999;
   background: rgba(0,0,0,0.85);
-  color: #ff00ff;
+  color: #00ffff;
   padding: 6px 12px;
-  border: 1px solid #ff00ff;
+  border: 1px solid #00ffff;
   border-radius: 4px;
   font-size: 11px;
   font-weight: bold;
-  text-shadow: 0 0 8px #ff00ff, 0 0 16px #ff00ff;
-  box-shadow: 0 0 10px rgba(255,0,255,0.5);
+  text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
+  box-shadow: 0 0 10px rgba(0,255,255,0.5);
   letter-spacing: 1px;
+  pointer-events: none;
 }
 
 /* MENU SCREEN */
@@ -101,6 +103,7 @@ html, body {
   font-family: inherit;
   letter-spacing: 8px;
   outline: none;
+  text-transform: uppercase;
 }
 
 #joinInput:focus {
@@ -137,7 +140,7 @@ html, body {
 
 #playerList {
   width: 280px;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
   margin: 16px;
 }
@@ -201,6 +204,7 @@ html, body {
   font-size: 12px;
   color: #888;
   margin: 8px;
+  text-align: center;
 }
 
 /* GAME SCREEN */
@@ -217,6 +221,7 @@ html, body {
   width: 100%;
   height: 100%;
   background: #0a0a0a;
+  display: block;
 }
 
 /* HUD */
@@ -306,6 +311,7 @@ html, body {
   align-items: center;
   justify-content: center;
   text-align: center;
+  background: transparent;
 }
 
 #fireBtn {
@@ -397,7 +403,7 @@ html, body {
 <body>
 
 <!-- VERSION BADGE -->
-<div id="versionBadge">БИЛД v7.0 WI-FI</div>
+<div id="versionBadge">БИЛД v8.0 DIRECT</div>
 
 <!-- MENU SCREEN -->
 <div id="menuScreen">
@@ -412,7 +418,7 @@ html, body {
 <div id="lobbyScreen">
   <h2>ЛОББИ</h2>
   <div id="roomCodeDisplay">---</div>
-  <div id="statusText">Ожидание игроков...</div>
+  <div id="statusText">Поиск игроков через WebTorrent...</div>
   <div id="playerList"></div>
   <button id="colorBtn">🎨 Сменить цвет</button>
   <button id="startBtn" disabled>▶ НАЧАТЬ КАТКУ</button>
@@ -452,27 +458,42 @@ html, body {
   </div>
 </div>
 
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script>
+<script type="module">
 // ============================================================
-// АКОД: ТИШИНА ЗА ПЕРИМЕРОМ — БИЛД v7.0 WI-FI
+// АКОД: ТИШИНА ЗА ПЕРИМЕРОМ — БИЛД v8.0 DIRECT
+// Прямое P2P через Trystero (WebTorrent)
 // ============================================================
 
+import { joinRoom } from 'https://esm.run/trystero/torrent';
+
+// Константы игры
 const COLORS = ['#FFD700', '#00FF7F', '#00BFFF', '#FF4500'];
 const PLAYER_RADIUS = 12;
 const ZOMBIE_RADIUS = 11;
-const BULLET_SPEED = 8;
+const BULLET_SPEED = 9;
 const PLAYER_SPEED = 2.5;
 const ZOMBIE_SPEED = 1.2;
 const SCREAMER_SPEED = 2.8;
 const WORLD_W = 1600;
 const WORLD_H = 1200;
+const HOST_BROADCAST_INTERVAL = 60; // мс
 
-// Audio context
+// DOM элементы
+const menuScreen = document.getElementById('menuScreen');
+const lobbyScreen = document.getElementById('lobbyScreen');
+const gameScreen = document.getElementById('gameScreen');
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// ============================================================
+// АУДИО (Web Audio API)
+// ============================================================
 let audioCtx = null;
 function initAudio() {
   if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { console.warn('Audio init failed'); }
   }
 }
 
@@ -484,59 +505,81 @@ function playSound(type) {
     osc.connect(gain);
     gain.connect(audioCtx.destination);
     
+    const now = audioCtx.currentTime;
+    
     if (type === 'shoot') {
       osc.type = 'square';
-      osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      osc.start(now);
+      osc.stop(now + 0.08);
     } else if (type === 'step') {
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(80 + Math.random() * 40, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.05);
+      osc.frequency.setValueAtTime(70 + Math.random() * 50, now);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      osc.start(now);
+      osc.stop(now + 0.04);
     } else if (type === 'hit') {
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(320, now);
+      osc.frequency.exponentialRampToValueAtTime(60, now + 0.12);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.start(now);
+      osc.stop(now + 0.12);
     } else if (type === 'revive') {
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-      osc.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.3);
-      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.3);
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.linearRampToValueAtTime(800, now + 0.25);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.start(now);
+      osc.stop(now + 0.25);
+    } else if (type === 'screamer') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.exponentialRampToValueAtTime(100, now + 0.4);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } else if (type === 'death') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.exponentialRampToValueAtTime(20, now + 0.6);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      osc.start(now);
+      osc.stop(now + 0.6);
     }
-  } catch(e) {}
+  } catch(e) { /* ignore */ }
 }
 
-// DOM elements
-const menuScreen = document.getElementById('menuScreen');
-const lobbyScreen = document.getElementById('lobbyScreen');
-const gameScreen = document.getElementById('gameScreen');
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-// Network state
-let peer = null;
-let connections = {}; // id -> connection
-let myConn = null;
-let myId = null;
+// ============================================================
+// СОСТОЯНИЕ ИГРЫ
+// ============================================================
 let isHost = false;
+let myPeerId = null;
 let roomCode = '';
+let room = null;
 let myColorIndex = 0;
 let playerColor = COLORS[0];
 
-// Game state
+// Действия Trystero
+let sendState = null;
+let sendMove = null;
+let sendShot = null;
+let sendRevive = null;
+let sendColorChange = null;
+let sendLobbyUpdate = null;
+
+// Локальное состояние
+let lobbyPlayers = {}; // peerId -> {name, color, colorIndex, isHost}
+
+// Игровое состояние (единое для всех)
 let STATE = {
   started: false,
   gameOver: false,
@@ -547,59 +590,165 @@ let STATE = {
   bullets: []
 };
 
-// Input state
+// Входные данные
 let moveX = 0, moveY = 0;
 let isFiring = false;
 let fireTimer = 0;
 let stepTimer = 0;
+let isReviving = false;
 
-// Buildings/obstacles
+// Здания / препятствия
 const buildings = [];
+
 function generateBuildings() {
   buildings.length = 0;
-  for (let i = 0; i < 12; i++) {
-    let w = 60 + Math.random() * 120;
-    let h = 60 + Math.random() * 100;
-    let x = 100 + Math.random() * (WORLD_W - 200 - w);
-    let y = 100 + Math.random() * (WORLD_H - 200 - h);
-    buildings.push({x, y, w, h});
+  // Несколько крупных шахтёрских построек
+  const templates = [
+    { x: 200, y: 200, w: 180, h: 140 },
+    { x: 700, y: 150, w: 120, h: 180 },
+    { x: 1200, y: 300, w: 160, h: 120 },
+    { x: 300, y: 700, w: 140, h: 160 },
+    { x: 850, y: 800, w: 200, h: 100 },
+    { x: 1300, y: 750, w: 100, h: 180 },
+    { x: 500, y: 450, w: 90, h: 90 },
+    { x: 1000, y: 550, w: 110, h: 110 },
+    { x: 150, y: 950, w: 160, h: 100 },
+    { x: 1100, y: 1000, w: 140, h: 120 }
+  ];
+  templates.forEach(t => buildings.push(t));
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function showMenu() {
+  menuScreen.style.display = 'flex';
+  lobbyScreen.style.display = 'none';
+  gameScreen.style.display = 'none';
+}
+
+function showLobby() {
+  menuScreen.style.display = 'none';
+  lobbyScreen.style.display = 'flex';
+  gameScreen.style.display = 'none';
+  document.getElementById('roomCodeDisplay').textContent = roomCode;
+  updateLobbyUI();
+}
+
+function startGameScreen() {
+  lobbyScreen.style.display = 'none';
+  gameScreen.style.display = 'block';
+  resizeCanvas();
+  if (!gameLoopRunning) {
+    gameLoopRunning = true;
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+  }
+}
+
+function backToMenu() {
+  gameScreen.style.display = 'none';
+  lobbyScreen.style.display = 'none';
+  menuScreen.style.display = 'flex';
+  document.getElementById('gameOverOverlay').style.display = 'none';
+  
+  STATE.started = false;
+  STATE.gameOver = false;
+  STATE.players = {};
+  STATE.zombies = [];
+  STATE.bullets = [];
+  
+  if (room) {
+    try { room.leave(); } catch(e) {}
+    room = null;
+  }
+  
+  sendState = null;
+  sendMove = null;
+  sendShot = null;
+  sendRevive = null;
+  sendColorChange = null;
+  sendLobbyUpdate = null;
+  
+  lobbyPlayers = {};
+}
+
+function updateLobbyUI() {
+  const list = document.getElementById('playerList');
+  list.innerHTML = '';
+  const players = Object.values(lobbyPlayers);
+  
+  players.forEach((p, idx) => {
+    const div = document.createElement('div');
+    div.className = 'playerItem';
+    div.innerHTML = `
+      <div class="playerColorDot" style="background:${p.color};color:${p.color}"></div>
+      <span class="playerName">${p.name}${p.isHost ? ' (хост)' : ''}</span>
+    `;
+    list.appendChild(div);
+  });
+  
+  document.getElementById('statusText').textContent = 
+    `Подключено: ${players.length} / 4`;
+  
+  if (isHost) {
+    document.getElementById('startBtn').disabled = players.length < 1;
+    document.getElementById('startBtn').style.display = 'block';
+  } else {
+    document.getElementById('startBtn').style.display = 'none';
   }
 }
 
 // ============================================================
-// MENU LOGIC
+// TRYSTERO P2P SETUP
 // ============================================================
-
-document.getElementById('createRoomBtn').addEventListener('click', () => {
-  initAudio();
-  roomCode = String(Math.floor(100 + Math.random() * 900));
-  isHost = true;
-  myColorIndex = 0;
-  playerColor = COLORS[0];
+function setupTrystero() {
+  const config = {
+    appId: 'akod_v8_coop_survival',
+    trackerUrls: [
+      'wss://tracker.openwebtorrent.com',
+      'wss://tracker.webtorrent.dev',
+      'wss://tracker.btorrent.xyz'
+    ]
+  };
   
-  peer = new Peer('akod_v7_host_' + roomCode, {
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-      ]
-    }
-  });
-
-  peer.on('open', (id) => {
-    myId = id;
-    showLobby();
-  });
-
-  peer.on('connection', (conn) => {
-    conn.on('open', () => {
-      connections[conn.peer] = conn;
-      // Assign color
-      const colorIdx = Object.keys(connections).length % COLORS.length;
-      const pId = conn.peer;
-      STATE.players[pId] = {
-        x: WORLD_W / 2 + (Object.keys(STATE.players).length * 40),
+  room = joinRoom(config, 'room_' + roomCode);
+  
+  // Создание каналов
+  const [sendStateAction, getStateAction] = room.makeAction('state');
+  const [sendMoveAction, getMoveAction] = room.makeAction('move');
+  const [sendShotAction, getShotAction] = room.makeAction('shot');
+  const [sendReviveAction, getReviveAction] = room.makeAction('revive');
+  const [sendColorChangeAction, getColorChangeAction] = room.makeAction('color');
+  const [sendLobbyAction, getLobbyAction] = room.makeAction('lobby');
+  
+  sendState = sendStateAction;
+  sendMove = sendMoveAction;
+  sendShot = sendShotAction;
+  sendRevive = sendReviveAction;
+  sendColorChange = sendColorChangeAction;
+  sendLobbyUpdate = sendLobbyAction;
+  
+  // Подписка на события пиров
+  room.onPeerJoin(peerId => {
+    console.log('Peer joined:', peerId);
+    if (isHost) {
+      // Хост назначает новому игроку цвет
+      const usedColors = new Set(Object.values(lobbyPlayers).map(p => p.colorIndex));
+      let colorIdx = 0;
+      while (usedColors.has(colorIdx)) colorIdx++;
+      
+      lobbyPlayers[peerId] = {
+        name: 'Игрок ' + Object.keys(lobbyPlayers).length,
+        color: COLORS[colorIdx],
+        colorIndex: colorIdx,
+        isHost: false
+      };
+      
+      // Добавляем игрока в игровое состояние
+      const spawnOffset = Object.keys(STATE.players).length;
+      STATE.players[peerId] = {
+        x: WORLD_W / 2 + (spawnOffset * 40) - 60,
         y: WORLD_H / 2,
         angle: 0,
         hp: 100,
@@ -608,30 +757,163 @@ document.getElementById('createRoomBtn').addEventListener('click', () => {
         isDown: false,
         moveX: 0,
         moveY: 0,
-        firing: false
+        firing: false,
+        reviving: false
       };
-      sendToClient(conn, { type: 'welcome', id: pId, color: COLORS[colorIdx], colorIndex: colorIdx });
+      
       updateLobbyUI();
-    });
-    conn.on('data', (data) => {
-      handleClientData(conn, data);
-    });
-    conn.on('close', () => {
-      delete connections[conn.peer];
-      delete STATE.players[conn.peer];
+      
+      // Отправляем обновлённый список всем
+      broadcastLobby();
+    } else {
+      // Клиент просто обновляет UI
+      if (!lobbyPlayers[peerId]) {
+        lobbyPlayers[peerId] = {
+          name: 'Игрок',
+          color: '#888',
+          colorIndex: 0,
+          isHost: false
+        };
+      }
       updateLobbyUI();
-    });
-    conn.on('error', (err) => {
-      console.error('Connection error:', err);
-    });
+    }
   });
-
-  peer.on('error', (err) => {
-    console.error('Peer error:', err);
-    alert('Ошибка сети: ' + err.type);
+  
+  room.onPeerLeave(peerId => {
+    console.log('Peer left:', peerId);
+    delete lobbyPlayers[peerId];
+    delete STATE.players[peerId];
+    updateLobbyUI();
+    if (isHost) broadcastLobby();
   });
+  
+  // Получение lobby-обновлений (клиенты)
+  getLobbyAction((data, peerId) => {
+    if (!isHost) {
+      lobbyPlayers = data.players;
+      // Синхронизируем цвет хоста/себя
+      if (data.myInfo) {
+        myColorIndex = data.myInfo.colorIndex;
+        playerColor = data.myInfo.color;
+      }
+      updateLobbyUI();
+    }
+  });
+  
+  // Получение состояния (только клиенты)
+  getStateAction((data, peerId) => {
+    if (!isHost) {
+      const wasNotStarted = !STATE.started;
+      STATE = data;
+      
+      if (wasNotStarted && STATE.started) {
+        startGameScreen();
+      }
+      
+      if (STATE.gameOver && !document.getElementById('gameOverOverlay').style.display) {
+        document.getElementById('gameOverOverlay').style.display = 'flex';
+        document.getElementById('finalWave').textContent = STATE.wave;
+        document.getElementById('finalKills').textContent = STATE.kills;
+      }
+      
+      updateHUD();
+    }
+  });
+  
+  // Получение input (только хост)
+  getMoveAction((data, peerId) => {
+    if (isHost && STATE.players[peerId]) {
+      STATE.players[peerId].moveX = data.moveX || 0;
+      STATE.players[peerId].moveY = data.moveY || 0;
+      STATE.players[peerId].firing = data.firing || false;
+      STATE.players[peerId].reviving = data.reviving || false;
+    }
+  });
+  
+  // Получение выстрела (хост создаёт пулю)
+  getShotAction((data, peerId) => {
+    if (isHost && STATE.players[peerId] && !STATE.players[peerId].isDown) {
+      const p = STATE.players[peerId];
+      STATE.bullets.push({
+        x: p.x,
+        y: p.y,
+        vx: Math.cos(p.angle) * BULLET_SPEED,
+        vy: Math.sin(p.angle) * BULLET_SPEED,
+        life: 60,
+        ownerId: peerId
+      });
+    }
+  });
+  
+  // Получение запроса на воскрешение
+  getReviveAction((data, peerId) => {
+    if (isHost) {
+      const healer = STATE.players[peerId];
+      if (!healer || healer.isDown) return;
+      
+      Object.entries(STATE.players).forEach(([otherId, other]) => {
+        if (otherId !== peerId && other.isDown) {
+          const d = Math.hypot(other.x - healer.x, other.y - healer.y);
+          if (d < 60) {
+            other.isDown = false;
+            other.hp = 50;
+          }
+        }
+      });
+    }
+  });
+  
+  // Получение смены цвета (хост принимает)
+  getColorChangeAction((data, peerId) => {
+    if (isHost && STATE.players[peerId]) {
+      STATE.players[peerId].color = data.color;
+      STATE.players[peerId].colorIndex = data.colorIndex;
+      if (lobbyPlayers[peerId]) {
+        lobbyPlayers[peerId].color = data.color;
+        lobbyPlayers[peerId].colorIndex = data.colorIndex;
+      }
+      updateLobbyUI();
+      broadcastLobby();
+    }
+  });
+  
+  // selfId
+  myPeerId = room.selfId || ('self_' + Math.random().toString(36).substr(2, 9));
+  console.log('My peer ID:', myPeerId);
+}
 
-  // Add host as player
+function broadcastLobby() {
+  if (!sendLobbyUpdate) return;
+  const players = { ...lobbyPlayers };
+  
+  Object.keys(lobbyPlayers).forEach(pid => {
+    sendLobbyUpdate({
+      players: players,
+      myInfo: lobbyPlayers[pid]
+    }, pid);
+  });
+}
+
+// ============================================================
+// СОЗДАНИЕ/ПРИСОЕДИНЕНИЕ К КОМНАТЕ
+// ============================================================
+document.getElementById('createRoomBtn').addEventListener('click', () => {
+  initAudio();
+  roomCode = String(Math.floor(100 + Math.random() * 900));
+  isHost = true;
+  myColorIndex = 0;
+  playerColor = COLORS[0];
+  
+  lobbyPlayers = {};
+  lobbyPlayers['host'] = {
+    name: 'Хост (вы)',
+    color: COLORS[0],
+    colorIndex: 0,
+    isHost: true
+  };
+  
+  // Инициализация игрового состояния
+  STATE.players = {};
   STATE.players['host'] = {
     x: WORLD_W / 2,
     y: WORLD_H / 2,
@@ -642,8 +924,12 @@ document.getElementById('createRoomBtn').addEventListener('click', () => {
     isDown: false,
     moveX: 0,
     moveY: 0,
-    firing: false
+    firing: false,
+    reviving: false
   };
+  
+  setupTrystero();
+  showLobby();
 });
 
 document.getElementById('joinRoomBtn').addEventListener('click', () => {
@@ -655,147 +941,39 @@ document.getElementById('joinRoomBtn').addEventListener('click', () => {
   }
   roomCode = code;
   isHost = false;
-
-  peer = new Peer({
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-      ]
-    }
-  });
-
-  peer.on('open', (id) => {
-    myId = id;
-    myConn = peer.connect('akod_v7_host_' + roomCode, { reliable: true });
-    
-    myConn.on('open', () => {
-      showLobby();
-    });
-
-    myConn.on('data', (data) => {
-      handleHostData(data);
-    });
-
-    myConn.on('close', () => {
-      if (STATE.started && !STATE.gameOver) {
-        alert('Соединение с хостом потеряно');
-        backToMenu();
-      }
-    });
-
-    myConn.on('error', (err) => {
-      console.error('Connection error:', err);
-    });
-  });
-
-  peer.on('error', (err) => {
-    console.error('Peer error:', err);
-    if (err.type === 'peer-unavailable') {
-      alert('Комната не найдена! Проверьте код.');
-    }
-  });
+  myColorIndex = 1;
+  playerColor = COLORS[1];
+  
+  lobbyPlayers = {};
+  STATE.players = {};
+  
+  setupTrystero();
+  showLobby();
 });
 
-function sendToClient(conn, data) {
-  if (conn && conn.open) {
-    try { conn.send(data); } catch(e) {}
-  }
-}
-
-function handleClientData(conn, data) {
-  const pId = conn.peer;
-  if (data.type === 'input') {
-    if (STATE.players[pId]) {
-      STATE.players[pId].moveX = data.moveX || 0;
-      STATE.players[pId].moveY = data.moveY || 0;
-      STATE.players[pId].firing = data.firing || false;
-      STATE.players[pId].reviving = data.reviving || false;
-    }
-  } else if (data.type === 'colorChange') {
-    if (STATE.players[pId]) {
-      STATE.players[pId].color = data.color;
-      STATE.players[pId].colorIndex = data.colorIndex;
-    }
-  }
-}
-
-function handleHostData(data) {
-  if (data.type === 'welcome') {
-    myId = data.id;
-    myColorIndex = data.colorIndex;
-    playerColor = data.color;
-    updateLobbyUI();
-  } else if (data.type === 'state') {
-    STATE = data;
-    if (STATE.started && lobbyScreen.style.display !== 'none') {
-      startGameScreen();
-    }
-    if (STATE.gameOver && !document.getElementById('gameOverOverlay').style.display) {
-      document.getElementById('gameOverOverlay').style.display = 'flex';
-      document.getElementById('finalWave').textContent = STATE.wave;
-      document.getElementById('finalKills').textContent = STATE.kills;
-    }
-    updateHUD();
-  } else if (data.type === 'playerList') {
-    renderPlayerList(data.players);
-  }
-}
-
-function showLobby() {
-  menuScreen.style.display = 'none';
-  lobbyScreen.style.display = 'flex';
-  document.getElementById('roomCodeDisplay').textContent = roomCode;
-  updateLobbyUI();
-}
-
-function updateLobbyUI() {
-  if (isHost) {
-    document.getElementById('startBtn').disabled = false;
-    document.getElementById('startBtn').style.display = 'block';
-    document.getElementById('statusText').textContent = 
-      'Подключено: ' + (Object.keys(STATE.players).length) + ' / 4';
-    renderPlayerList(Object.entries(STATE.players).map(([id, p]) => ({
-      id, name: id === 'host' ? 'Хост (вы)' : 'Игрок', color: p.color
-    })));
-    // Send player list to all clients
-    const playerListData = Object.entries(STATE.players).map(([id, p]) => ({
-      id, name: id === 'host' ? 'Хост' : 'Игрок', color: p.color
-    }));
-    Object.values(connections).forEach(conn => {
-      sendToClient(conn, { type: 'playerList', players: playerListData });
-    });
-  } else {
-    document.getElementById('startBtn').style.display = 'none';
-    document.getElementById('statusText').textContent = 'Ожидание начала от хоста...';
-  }
-}
-
-function renderPlayerList(players) {
-  const list = document.getElementById('playerList');
-  list.innerHTML = '';
-  players.forEach(p => {
-    const div = document.createElement('div');
-    div.className = 'playerItem';
-    div.innerHTML = `<div class="playerColorDot" style="background:${p.color};color:${p.color}"></div>
-      <span class="playerName">${p.name}</span>`;
-    list.appendChild(div);
-  });
-}
-
+// ============================================================
+// КНОПКИ ЛОББИ
+// ============================================================
 document.getElementById('colorBtn').addEventListener('click', () => {
   myColorIndex = (myColorIndex + 1) % COLORS.length;
   playerColor = COLORS[myColorIndex];
   
   if (isHost) {
+    // Хост обновляет свой цвет локально
     if (STATE.players['host']) {
       STATE.players['host'].color = playerColor;
       STATE.players['host'].colorIndex = myColorIndex;
     }
+    if (lobbyPlayers['host']) {
+      lobbyPlayers['host'].color = playerColor;
+      lobbyPlayers['host'].colorIndex = myColorIndex;
+    }
     updateLobbyUI();
-  } else if (myConn && myConn.open) {
-    myConn.send({ type: 'colorChange', color: playerColor, colorIndex: myColorIndex });
+    broadcastLobby();
+  } else {
+    if (sendColorChange) {
+      sendColorChange({ color: playerColor, colorIndex: myColorIndex });
+    }
   }
 });
 
@@ -804,16 +982,11 @@ document.getElementById('startBtn').addEventListener('click', () => {
   initGame();
   STATE.started = true;
   startGameScreen();
-  // Notify all clients
-  Object.values(connections).forEach(conn => {
-    sendToClient(conn, { type: 'start' });
-  });
 });
 
 // ============================================================
-// GAME INIT & LOOP
+// ИНИЦИАЛИЗАЦИЯ ИГРЫ (только у хоста)
 // ============================================================
-
 function initGame() {
   generateBuildings();
   STATE.zombies = [];
@@ -821,15 +994,24 @@ function initGame() {
   STATE.wave = 1;
   STATE.kills = 0;
   STATE.gameOver = false;
+  
+  // Размещаем всех игроков в стартовой точке
+  const players = Object.keys(STATE.players);
+  players.forEach((pid, idx) => {
+    STATE.players[pid].x = WORLD_W / 2 + (idx - players.length / 2) * 40;
+    STATE.players[pid].y = WORLD_H / 2;
+    STATE.players[pid].hp = 100;
+    STATE.players[pid].isDown = false;
+  });
+  
   spawnWave();
 }
 
 function spawnWave() {
   const count = 3 + STATE.wave * 2;
   for (let i = 0; i < count; i++) {
-    const type = (Math.random() < 0.2 + STATE.wave * 0.05) ? 'screamer' : 'normal';
+    const type = (Math.random() < 0.2 + STATE.wave * 0.04) ? 'screamer' : 'normal';
     let x, y;
-    // Spawn at edges
     const side = Math.floor(Math.random() * 4);
     if (side === 0) { x = Math.random() * WORLD_W; y = -20; }
     else if (side === 1) { x = Math.random() * WORLD_W; y = WORLD_H + 20; }
@@ -846,67 +1028,92 @@ function spawnWave() {
   }
 }
 
-function startGameScreen() {
-  lobbyScreen.style.display = 'none';
-  gameScreen.style.display = 'block';
-  resizeCanvas();
-  requestAnimationFrame(gameLoop);
-}
-
+// ============================================================
+// RESIZE CANVAS
+// ============================================================
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
 window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
 
-// Game loop (runs on host primarily, but clients also render)
+// ============================================================
+// GAME LOOP
+// ============================================================
+let gameLoopRunning = false;
 let lastTime = 0;
 let stateBroadcastTimer = 0;
-let zombieSpawnTimer = 0;
+let inputSendTimer = 0;
 
 function gameLoop(timestamp) {
-  if (STATE.gameOver && !document.getElementById('gameOverOverlay').style.display) {
-    document.getElementById('gameOverOverlay').style.display = 'flex';
-    document.getElementById('finalWave').textContent = STATE.wave;
-    document.getElementById('finalKills').textContent = STATE.kills;
-  }
-
   const dt = Math.min(32, timestamp - lastTime);
   lastTime = timestamp;
-
-  if (isHost && STATE.started && !STATE.gameOver) {
-    updateHostLogic(dt);
-    
-    stateBroadcastTimer += dt;
-    if (stateBroadcastTimer >= 50) {
-      stateBroadcastTimer = 0;
-      broadcastState();
-    }
-  }
-
-  if (!isHost && STATE.started) {
-    // Send input to host
-    sendInputToHost();
-  }
-
-  // Handle host's own input
-  if (isHost && STATE.players['host'] && !STATE.players['host'].isDown) {
-    STATE.players['host'].moveX = moveX;
-    STATE.players['host'].moveY = moveY;
-    STATE.players['host'].firing = isFiring;
-  }
-
-  render();
   
   if (STATE.started) {
-    requestAnimationFrame(gameLoop);
+    if (isHost) {
+      updateHostLogic(dt);
+      
+      stateBroadcastTimer += dt;
+      if (stateBroadcastTimer >= HOST_BROADCAST_INTERVAL) {
+        stateBroadcastTimer = 0;
+        if (sendState) {
+          sendState({
+            started: STATE.started,
+            gameOver: STATE.gameOver,
+            wave: STATE.wave,
+            kills: STATE.kills,
+            players: JSON.parse(JSON.stringify(STATE.players)),
+            zombies: JSON.parse(JSON.stringify(STATE.zombies)),
+            bullets: JSON.parse(JSON.stringify(STATE.bullets))
+          });
+        }
+      }
+    } else {
+      // Клиент отправляет input
+      inputSendTimer += dt;
+      if (inputSendTimer >= 50) {
+        inputSendTimer = 0;
+        if (sendMove) {
+          sendMove({
+            moveX: moveX,
+            moveY: moveY,
+            firing: isFiring,
+            reviving: isReviving
+          });
+        }
+      }
+    }
+    
+    // Локальная обработка хоста
+    if (isHost && STATE.players['host'] && !STATE.players['host'].isDown) {
+      STATE.players['host'].moveX = moveX;
+      STATE.players['host'].moveY = moveY;
+      STATE.players['host'].firing = isFiring;
+      STATE.players['host'].reviving = isReviving;
+    }
+    
+    if (STATE.gameOver && document.getElementById('gameOverOverlay').style.display !== 'flex') {
+      document.getElementById('gameOverOverlay').style.display = 'flex';
+      document.getElementById('finalWave').textContent = STATE.wave;
+      document.getElementById('finalKills').textContent = STATE.kills;
+      playSound('death');
+    }
+    
+    render();
+    updateHUD();
   }
+  
+  requestAnimationFrame(gameLoop);
 }
 
+// ============================================================
+// ЛОГИКА ХОСТА
+// ============================================================
 function updateHostLogic(dt) {
   const dtFactor = dt / 16.67;
   
-  // Move players
+  // Движение всех игроков
   Object.entries(STATE.players).forEach(([id, player]) => {
     if (player.isDown) return;
     
@@ -917,7 +1124,7 @@ function updateHostLogic(dt) {
       let newX = player.x + nx * PLAYER_SPEED * dtFactor;
       let newY = player.y + ny * PLAYER_SPEED * dtFactor;
       
-      // Collision with buildings
+      // Коллизия со зданиями
       let blocked = false;
       for (const b of buildings) {
         if (newX + PLAYER_RADIUS > b.x && newX - PLAYER_RADIUS < b.x + b.w &&
@@ -926,7 +1133,8 @@ function updateHostLogic(dt) {
           break;
         }
       }
-      // World bounds
+      
+      // Границы мира
       newX = Math.max(PLAYER_RADIUS, Math.min(WORLD_W - PLAYER_RADIUS, newX));
       newY = Math.max(PLAYER_RADIUS, Math.min(WORLD_H - PLAYER_RADIUS, newY));
       
@@ -936,63 +1144,62 @@ function updateHostLogic(dt) {
       }
       player.angle = Math.atan2(ny, nx);
       
-      // Footstep sounds (only for host player)
+      // Шаги (только для хоста)
       if (id === 'host') {
         stepTimer += dt;
-        if (stepTimer > 300) {
+        if (stepTimer > 280) {
           stepTimer = 0;
           playSound('step');
         }
       }
     }
-
-    // Auto-fire at nearest zombie
-    if (player.firing) {
+    
+    // Авто-стрельба у хоста
+    if (player.firing && id === 'host') {
       fireTimer += dt;
-      if (fireTimer > 200) {
+      if (fireTimer > 180) {
         fireTimer = 0;
-        // Find nearest zombie
         let nearest = null;
         let nearDist = Infinity;
         STATE.zombies.forEach(z => {
           const d = Math.hypot(z.x - player.x, z.y - player.y);
           if (d < nearDist) { nearDist = d; nearest = z; }
         });
-        if (nearest && nearDist < 500) {
+        if (nearest && nearDist < 600) {
           const angle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
+          player.angle = angle;
           STATE.bullets.push({
             x: player.x,
             y: player.y,
             vx: Math.cos(angle) * BULLET_SPEED,
             vy: Math.sin(angle) * BULLET_SPEED,
             life: 60,
-            ownerId: id
+            ownerId: 'host'
           });
-          if (id === 'host') playSound('shoot');
+          playSound('shoot');
         }
       }
-    } else {
-      fireTimer = 180; // ready to fire quickly
+    } else if (id === 'host') {
+      fireTimer = 150;
     }
-
-    // Revive nearby downed player
-    if (player.reviving) {
+    
+    // Воскрешение
+    if (player.reviving && id === 'host') {
       Object.entries(STATE.players).forEach(([otherId, other]) => {
         if (otherId !== id && other.isDown) {
           const d = Math.hypot(other.x - player.x, other.y - player.y);
-          if (d < 50) {
+          if (d < 60) {
             other.isDown = false;
             other.hp = 50;
-            if (id === 'host') playSound('revive');
+            playSound('revive');
           }
         }
       });
     }
   });
-
-  // Move zombies
+  
+  // Движение зомби
   STATE.zombies.forEach(zombie => {
-    // Find nearest alive player
     let target = null;
     let nearDist = Infinity;
     Object.values(STATE.players).forEach(p => {
@@ -1000,36 +1207,53 @@ function updateHostLogic(dt) {
       const d = Math.hypot(p.x - zombie.x, p.y - zombie.y);
       if (d < nearDist) { nearDist = d; target = p; }
     });
-
+    
     if (target) {
       const angle = Math.atan2(target.y - zombie.y, target.x - zombie.x);
       zombie.angle = angle;
       const speed = zombie.type === 'screamer' ? SCREAMER_SPEED : ZOMBIE_SPEED;
-      zombie.x += Math.cos(angle) * speed * dtFactor;
-      zombie.y += Math.sin(angle) * speed * dtFactor;
-
-      // Attack player
+      
+      let newX = zombie.x + Math.cos(angle) * speed * dtFactor;
+      let newY = zombie.y + Math.sin(angle) * speed * dtFactor;
+      
+      // Простая коллизия со зданиями для зомби
+      let blocked = false;
+      for (const b of buildings) {
+        if (newX + ZOMBIE_RADIUS > b.x && newX - ZOMBIE_RADIUS < b.x + b.w &&
+            newY + ZOMBIE_RADIUS > b.y && newY - ZOMBIE_RADIUS < b.y + b.h) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked) {
+        zombie.x = newX;
+        zombie.y = newY;
+      }
+      
+      // Атака
       if (nearDist < PLAYER_RADIUS + ZOMBIE_RADIUS) {
         zombie.attackCd -= dt;
         if (zombie.attackCd <= 0) {
           zombie.attackCd = 1000;
-          target.hp -= zombie.type === 'screamer' ? 15 : 10;
-          if (target.hp <= 0) {
+          target.hp -= zombie.type === 'screamer' ? 18 : 12;
+          if (zombie.type === 'screamer') playSound('screamer');
+          if (target.hp <= 0 && !target.isDown) {
             target.isDown = true;
             target.hp = 0;
+            if (target === STATE.players['host']) playSound('death');
           }
         }
       }
     }
   });
-
-  // Move bullets
+  
+  // Движение пуль
   STATE.bullets = STATE.bullets.filter(b => {
     b.x += b.vx * dtFactor;
     b.y += b.vy * dtFactor;
     b.life -= dtFactor;
-
-    // Check zombie hits
+    
+    // Проверка попадания в зомби
     for (let i = STATE.zombies.length - 1; i >= 0; i--) {
       const z = STATE.zombies[i];
       if (Math.hypot(z.x - b.x, z.y - b.y) < ZOMBIE_RADIUS + 4) {
@@ -1042,83 +1266,86 @@ function updateHostLogic(dt) {
         return false;
       }
     }
-
-    // Building collision
+    
+    // Коллизия со зданиями
     for (const bldg of buildings) {
       if (b.x > bldg.x && b.x < bldg.x + bldg.w && b.y > bldg.y && b.y < bldg.y + bldg.h) {
         return false;
       }
     }
-
+    
+    // Границы
+    if (b.x < 0 || b.x > WORLD_W || b.y < 0 || b.y > WORLD_H) {
+      return false;
+    }
+    
     return b.life > 0;
   });
-
-  // Check next wave
-  if (STATE.zombies.length === 0) {
+  
+  // Следующая волна
+  if (STATE.zombies.length === 0 && STATE.started && !STATE.gameOver) {
     STATE.wave++;
     spawnWave();
   }
-
-  // Check game over
+  
+  // Game Over
   const alivePlayers = Object.values(STATE.players).filter(p => !p.isDown);
-  if (alivePlayers.length === 0) {
+  if (alivePlayers.length === 0 && STATE.started) {
     STATE.gameOver = true;
   }
 }
 
-function broadcastState() {
-  const stateCopy = {
-    type: 'state',
-    started: STATE.started,
-    gameOver: STATE.gameOver,
-    wave: STATE.wave,
-    kills: STATE.kills,
-    players: JSON.parse(JSON.stringify(STATE.players)),
-    zombies: JSON.parse(JSON.stringify(STATE.zombies)),
-    bullets: JSON.parse(JSON.stringify(STATE.bullets))
-  };
-  Object.values(connections).forEach(conn => {
-    sendToClient(conn, stateCopy);
-  });
-}
-
-function sendInputToHost() {
-  if (myConn && myConn.open) {
-    myConn.send({
-      type: 'input',
-      moveX: moveX,
-      moveY: moveY,
-      firing: isFiring
-    });
+// ============================================================
+// HUD UPDATE
+// ============================================================
+function updateHUD() {
+  if (!STATE.started) return;
+  
+  document.getElementById('waveNum').textContent = STATE.wave;
+  document.getElementById('killCount').textContent = STATE.kills;
+  
+  let myPlayer;
+  if (isHost) {
+    myPlayer = STATE.players['host'];
+  } else {
+    myPlayer = STATE.players[myPeerId];
+  }
+  
+  if (myPlayer) {
+    document.getElementById('hpFill').style.width = Math.max(0, myPlayer.hp) + '%';
+    if (myPlayer.hp <= 30) {
+      document.getElementById('hpFill').style.background = '#ff4500';
+    } else {
+      document.getElementById('hpFill').style.background = '#00FF7F';
+    }
   }
 }
 
 // ============================================================
-// RENDERING
+// РЕНДЕРИНГ
 // ============================================================
-
 function render() {
-  ctx.fillStyle = '#0a0a0a';
+  ctx.fillStyle = '#050505';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-
+  
   if (!STATE.started) return;
-
-  // Camera: center on host or self
+  
+  // Цель камеры
   let camTarget;
   if (isHost) {
     camTarget = STATE.players['host'];
   } else {
-    camTarget = STATE.players[myId];
+    camTarget = STATE.players[myPeerId];
   }
   if (!camTarget) return;
-
+  
   const camX = camTarget.x - canvas.width / 2;
   const camY = camTarget.y - canvas.height / 2;
-
+  
   ctx.save();
   ctx.translate(-camX, -camY);
-
-  // Draw ground grid
+  
+  // Сетка земли
   ctx.strokeStyle = 'rgba(255,255,255,0.03)';
   ctx.lineWidth = 1;
   const gridSize = 80;
@@ -1136,41 +1363,70 @@ function render() {
     ctx.lineTo(camX + canvas.width, y);
     ctx.stroke();
   }
-
-  // Draw buildings
-  ctx.fillStyle = '#1a1a1a';
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 2;
+  
+  // Здания
   buildings.forEach(b => {
+    // Тень
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(b.x + 4, b.y + 4, b.w, b.h);
+    // Основа
+    ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(b.x, b.y, b.w, b.h);
+    // Крыша
+    ctx.fillStyle = '#2a1810';
+    ctx.fillRect(b.x + 4, b.y + 4, b.w - 8, b.h - 8);
+    // Граница
+    ctx.strokeStyle = '#3a3a3a';
+    ctx.lineWidth = 2;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
+    // Окна (тёмные)
+    ctx.fillStyle = '#0a0a0a';
+    const windowSize = 12;
+    for (let wx = b.x + 20; wx < b.x + b.w - 20; wx += 30) {
+      for (let wy = b.y + 20; wy < b.y + b.h - 20; wy += 30) {
+        ctx.fillRect(wx, wy, windowSize, windowSize);
+      }
+    }
   });
-
-  // Draw world border
+  
+  // Граница мира
   ctx.strokeStyle = '#444';
   ctx.lineWidth = 3;
   ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
-
-  // Draw flashlight cones
+  
+  // Конусы света фонариков
   Object.values(STATE.players).forEach(p => {
     if (p.isDown) return;
-    const gradient = ctx.createRadialGradient(p.x, p.y, 10, p.x, p.y, 200);
-    gradient.addColorStop(0, p.color + '40');
-    gradient.addColorStop(0.5, p.color + '15');
-    gradient.addColorStop(1, 'transparent');
     
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    
+    // Градиент конуса
+    const gradient = ctx.createRadialGradient(p.x, p.y, 15, p.x, p.y, 220);
+    gradient.addColorStop(0, p.color + '60');
+    gradient.addColorStop(0.5, p.color + '20');
+    gradient.addColorStop(1, 'transparent');
+    
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
-    ctx.arc(p.x, p.y, 200, p.angle - 0.5, p.angle + 0.5);
+    ctx.arc(p.x, p.y, 220, p.angle - 0.55, p.angle + 0.55);
     ctx.closePath();
     ctx.fill();
+    
+    // Круглый ореол вокруг игрока
+    const halo = ctx.createRadialGradient(p.x, p.y, 5, p.x, p.y, 50);
+    halo.addColorStop(0, p.color + '40');
+    halo.addColorStop(1, 'transparent');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 50, 0, Math.PI * 2);
+    ctx.fill();
+    
     ctx.restore();
   });
-
-  // Draw zombies
+  
+  // Зомби
   STATE.zombies.forEach(z => {
     ctx.save();
     ctx.translate(z.x, z.y);
@@ -1179,49 +1435,53 @@ function render() {
     if (z.type === 'screamer') {
       ctx.fillStyle = '#ff2255';
       ctx.shadowColor = '#ff2255';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 12;
     } else {
       ctx.fillStyle = '#4a7a4a';
       ctx.shadowColor = '#4a7a4a';
-      ctx.shadowBlur = 5;
+      ctx.shadowBlur = 6;
     }
     
     ctx.beginPath();
     ctx.arc(0, 0, ZOMBIE_RADIUS, 0, Math.PI * 2);
     ctx.fill();
     
-    // Eyes
+    // Глаза
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(5, -4, 3, 0, Math.PI * 2);
     ctx.arc(5, 4, 3, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#ff0000';
     ctx.beginPath();
     ctx.arc(6, -4, 1.5, 0, Math.PI * 2);
     ctx.arc(6, 4, 1.5, 0, Math.PI * 2);
     ctx.fill();
     
+    ctx.shadowBlur = 0;
     ctx.restore();
   });
-
-  // Draw players
+  
+  // Игроки
   Object.values(STATE.players).forEach(p => {
     ctx.save();
     ctx.translate(p.x, p.y);
     
     if (p.isDown) {
-      ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#666';
+      // Раненый
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#555';
       ctx.beginPath();
       ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
       ctx.fill();
-      // Down indicator
+      
+      // Индикатор
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#ff4444';
-      ctx.font = '10px Courier New';
+      ctx.font = 'bold 14px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText('✚', 0, -20);
+      ctx.textBaseline = 'middle';
+      ctx.fillText('✚', 0, 0);
     } else {
       ctx.rotate(p.angle);
       ctx.fillStyle = p.color;
@@ -1230,58 +1490,45 @@ function render() {
       ctx.beginPath();
       ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
       ctx.fill();
-      
-      // Gun barrel
-      ctx.fillStyle = '#ccc';
-      ctx.fillRect(PLAYER_RADIUS - 2, -2, 10, 4);
-      
       ctx.shadowBlur = 0;
+      
+      // Ствол оружия
+      ctx.fillStyle = '#ddd';
+      ctx.fillRect(PLAYER_RADIUS - 2, -2, 12, 4);
+      ctx.fillStyle = '#666';
+      ctx.fillRect(PLAYER_RADIUS - 2, -2, 12, 1);
     }
     
     ctx.restore();
   });
-
-  // Draw bullets
-  ctx.fillStyle = '#ffff00';
-  ctx.shadowColor = '#ffff00';
-  ctx.shadowBlur = 8;
+  
+  // Пули
+  ctx.fillStyle = '#ffff44';
+  ctx.shadowColor = '#ffff44';
+  ctx.shadowBlur = 10;
   STATE.bullets.forEach(b => {
     ctx.beginPath();
     ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.shadowBlur = 0;
-
-  ctx.restore();
-
-  // Darkness overlay (outside flashlight cones)
-  // This is already handled by the dark background and cone lighting
-}
-
-function updateHUD() {
-  document.getElementById('waveNum').textContent = STATE.wave;
-  document.getElementById('killCount').textContent = STATE.kills;
   
-  let myPlayer;
-  if (isHost) {
-    myPlayer = STATE.players['host'];
-  } else {
-    myPlayer = STATE.players[myId];
-  }
-  if (myPlayer) {
-    document.getElementById('hpFill').style.width = Math.max(0, myPlayer.hp) + '%';
-    if (myPlayer.hp <= 30) {
-      document.getElementById('hpFill').style.background = '#ff4500';
-    } else {
-      document.getElementById('hpFill').style.background = '#00FF7F';
-    }
-  }
+  ctx.restore();
+  
+  // Виньетирование по краям
+  const vignette = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.3,
+    canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.7
+  );
+  vignette.addColorStop(0, 'transparent');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
 // ============================================================
-// TOUCH CONTROLS
+// TOUCH CONTROLS — JOYSTICK
 // ============================================================
-
 const joystickArea = document.getElementById('joystickArea');
 const joystickKnob = document.getElementById('joystickKnob');
 let joystickTouchId = null;
@@ -1295,7 +1542,7 @@ joystickArea.addEventListener('touchstart', (e) => {
   const rect = joystickArea.getBoundingClientRect();
   joystickCenterX = rect.left + rect.width / 2;
   joystickCenterY = rect.top + rect.height / 2;
-});
+}, { passive: false });
 
 joystickArea.addEventListener('touchmove', (e) => {
   e.preventDefault();
@@ -1312,9 +1559,9 @@ joystickArea.addEventListener('touchmove', (e) => {
       moveY = (Math.sin(angle) * dist) / 50;
     }
   }
-});
+}, { passive: false });
 
-joystickArea.addEventListener('touchend', (e) => {
+function joystickRelease(e) {
   e.preventDefault();
   for (const touch of e.changedTouches) {
     if (touch.identifier === joystickTouchId) {
@@ -1324,9 +1571,13 @@ joystickArea.addEventListener('touchend', (e) => {
       moveY = 0;
     }
   }
-});
+}
+joystickArea.addEventListener('touchend', joystickRelease, { passive: false });
+joystickArea.addEventListener('touchcancel', joystickRelease, { passive: false });
 
-// Fire button
+// ============================================================
+// FIRE BUTTON
+// ============================================================
 const fireBtn = document.getElementById('fireBtn');
 let fireTouchId = null;
 
@@ -1335,9 +1586,29 @@ fireBtn.addEventListener('touchstart', (e) => {
   initAudio();
   isFiring = true;
   fireTouchId = e.changedTouches[0].identifier;
-});
+  
+  // Для клиента — сразу отправить выстрел
+  if (!isHost && sendShot && STATE.started) {
+    // Хост получит через move, но отправим сразу для меньшей задержки
+    let myPlayer = STATE.players[myPeerId];
+    if (myPlayer) {
+      // Найти ближайшего зомби для направления
+      let nearest = null;
+      let nearDist = Infinity;
+      STATE.zombies.forEach(z => {
+        const d = Math.hypot(z.x - myPlayer.x, z.y - myPlayer.y);
+        if (d < nearDist) { nearDist = d; nearest = z; }
+      });
+      if (nearest && nearDist < 600) {
+        const angle = Math.atan2(nearest.y - myPlayer.y, nearest.x - myPlayer.x);
+        myPlayer.angle = angle;
+        sendShot({ targetAngle: angle });
+      }
+    }
+  }
+}, { passive: false });
 
-fireBtn.addEventListener('touchend', (e) => {
+function fireRelease(e) {
   e.preventDefault();
   for (const touch of e.changedTouches) {
     if (touch.identifier === fireTouchId) {
@@ -1345,23 +1616,27 @@ fireBtn.addEventListener('touchend', (e) => {
       fireTouchId = null;
     }
   }
-});
+}
+fireBtn.addEventListener('touchend', fireRelease, { passive: false });
+fireBtn.addEventListener('touchcancel', fireRelease, { passive: false });
 
-// Revive button
+// ============================================================
+// REVIVE BUTTON
+// ============================================================
 const reviveBtn = document.getElementById('reviveBtn');
 
 reviveBtn.addEventListener('touchstart', (e) => {
   e.preventDefault();
   initAudio();
-  // Revive handled in game logic when reviving flag is set
-  if (isHost) {
-    // Immediate revive check
+  isReviving = true;
+  
+  if (isHost && STATE.started) {
     const host = STATE.players['host'];
     if (host && !host.isDown) {
       Object.entries(STATE.players).forEach(([otherId, other]) => {
         if (otherId !== 'host' && other.isDown) {
           const d = Math.hypot(other.x - host.x, other.y - host.y);
-          if (d < 50) {
+          if (d < 60) {
             other.isDown = false;
             other.hp = 50;
             playSound('revive');
@@ -1369,55 +1644,103 @@ reviveBtn.addEventListener('touchstart', (e) => {
         }
       });
     }
-  } else if (myConn && myConn.open) {
-    myConn.send({ type: 'input', moveX, moveY, firing: isFiring, reviving: true });
+  } else if (!isHost && sendRevive) {
+    sendRevive({});
   }
-});
+}, { passive: false });
 
-// Restart button
+reviveBtn.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  isReviving = false;
+}, { passive: false });
+
+// ============================================================
+// RESTART BUTTON
+// ============================================================
 document.getElementById('restartBtn').addEventListener('click', () => {
   backToMenu();
 });
 
-function backToMenu() {
-  gameScreen.style.display = 'none';
-  lobbyScreen.style.display = 'none';
-  menuScreen.style.display = 'flex';
-  document.getElementById('gameOverOverlay').style.display = 'none';
-  STATE.started = false;
-  STATE.gameOver = false;
-  
-  // Cleanup
-  if (peer) {
-    peer.destroy();
-    peer = null;
-  }
-  connections = {};
-  myConn = null;
-  STATE.players = {};
-  STATE.zombies = [];
-  STATE.bullets = [];
-}
-
-// Prevent zoom on double tap
-document.addEventListener('gesturestart', e => e.preventDefault());
-document.addEventListener('dblclick', e => e.preventDefault());
-
-// Keyboard support for desktop testing
+// ============================================================
+// KEYBOARD (для десктопа)
+// ============================================================
+const keys = {};
 document.addEventListener('keydown', (e) => {
-  if (!STATE.started) return;
-  if (e.key === 'w' || e.key === 'ц') moveY = -1;
-  if (e.key === 's' || e.key === 'ы') moveY = 1;
-  if (e.key === 'a' || e.key === 'ф') moveX = -1;
-  if (e.key === 'd' || e.key === 'в') moveX = 1;
-  if (e.key === ' ') isFiring = true;
+  keys[e.key.toLowerCase()] = true;
+  updateKeyboardInput();
+  if (e.key === ' ' && !isFiring) {
+    isFiring = true;
+    if (!isHost && sendShot && STATE.started) {
+      let myPlayer = STATE.players[myPeerId];
+      if (myPlayer) {
+        let nearest = null, nearDist = Infinity;
+        STATE.zombies.forEach(z => {
+          const d = Math.hypot(z.x - myPlayer.x, z.y - myPlayer.y);
+          if (d < nearDist) { nearDist = d; nearest = z; }
+        });
+        if (nearest && nearDist < 600) {
+          const angle = Math.atan2(nearest.y - myPlayer.y, nearest.x - myPlayer.x);
+          sendShot({ targetAngle: angle });
+        }
+      }
+    }
+  }
+  if (e.key.toLowerCase() === 'r' && !isReviving) {
+    isReviving = true;
+    if (isHost && STATE.started) {
+      const host = STATE.players['host'];
+      if (host && !host.isDown) {
+        Object.entries(STATE.players).forEach(([otherId, other]) => {
+          if (otherId !== 'host' && other.isDown) {
+            const d = Math.hypot(other.x - host.x, other.y - host.y);
+            if (d < 60) {
+              other.isDown = false;
+              other.hp = 50;
+              playSound('revive');
+            }
+          }
+        });
+      }
+    } else if (!isHost && sendRevive) {
+      sendRevive({});
+    }
+  }
 });
 
 document.addEventListener('keyup', (e) => {
-  if (e.key === 'w' || e.key === 'ц' || e.key === 's' || e.key === 'ы') moveY = 0;
-  if (e.key === 'a' || e.key === 'ф' || e.key === 'd' || e.key === 'в') moveX = 0;
+  keys[e.key.toLowerCase()] = false;
+  updateKeyboardInput();
   if (e.key === ' ') isFiring = false;
+  if (e.key.toLowerCase() === 'r') isReviving = false;
 });
+
+function updateKeyboardInput() {
+  moveX = 0;
+  moveY = 0;
+  if (keys['w'] || keys['ц'] || keys['arrowup']) moveY -= 1;
+  if (keys['s'] || keys['ы'] || keys['arrowdown']) moveY += 1;
+  if (keys['a'] || keys['ф'] || keys['arrowleft']) moveX -= 1;
+  if (keys['d'] || keys['в'] || keys['arrowright']) moveX += 1;
+}
+
+// ============================================================
+// ANTI-ZOOM / ANTI-SCROLL
+// ============================================================
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('dblclick', e => e.preventDefault());
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+// Предотвращение pull-to-refresh на мобильных
+document.body.addEventListener('touchmove', (e) => {
+  if (e.target === document.body) e.preventDefault();
+}, { passive: false });
+
+// ============================================================
+// INIT
+// ============================================================
+console.log('🎮 АКОД: Тишина за периметром — БИЛД v8.0 DIRECT');
+console.log('📡 Режим: Trystero P2P (WebTorrent)');
 
 </script>
 </body>
